@@ -124,7 +124,7 @@ HVAC_ACTION_SETS = {
 HVAC_FAN_MODE_SETS = {
     "Auto/Turbo/Low/Middle/High": {
         FAN_AUTO: "auto",
-        FAN_TOP: "turbo",
+        FAN_TOP: "strong",
         FAN_LOW: "low",
         FAN_MEDIUM: "middle",
         FAN_HIGH: "high",
