@@ -101,7 +101,7 @@ HVAC_MODE_SETS = {
 HVAC_ACTION_SETS = {
     "True/False": {
         HVACAction.HEATING: True,
-        HVACAction.COOLING: False,
+        HVACAction.IDLE: False,
     },
     "open/close": {
         HVACAction.HEATING: "open",
