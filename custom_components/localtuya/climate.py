@@ -23,8 +23,10 @@ from homeassistant.components.climate.const import (
     FAN_MEDIUM,
     FAN_HIGH,
     FAN_TOP,
-    SWING_ON,
+    SWING_BOTH,
     SWING_OFF,
+    SWING_HORIZONTAL,
+    SWING_VERTICAL,
 )
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -57,8 +59,9 @@ from .const import (
     CONF_TEMPERATURE_STEP,
     CONF_HVAC_FAN_MODE_DP,
     CONF_HVAC_FAN_MODE_SET,
-    CONF_HVAC_SWING_MODE_DP,
     CONF_HVAC_SWING_MODE_SET,
+    CONF_HVAC_SWING_MODE_VERTICAL_DP,
+    CONF_HVAC_SWING_MODE_HORIZONTAL_DP,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -123,11 +126,11 @@ HVAC_ACTION_SETS = {
 }
 HVAC_FAN_MODE_SETS = {
     "Auto/Turbo/Low/Middle/High": {
-        FAN_AUTO: "auto",
-        FAN_TOP: "strong",
-        FAN_LOW: "low",
-        FAN_MEDIUM: "middle",
-        FAN_HIGH: "high",
+        FAN_AUTO: "1",
+        FAN_LOW: "3",
+        FAN_MEDIUM: "4",
+        FAN_HIGH: "5",
+        FAN_TOP: "2",
     },
     "Auto/Low/Middle/High/Strong": {
         FAN_AUTO: "auto",
@@ -135,12 +138,14 @@ HVAC_FAN_MODE_SETS = {
         FAN_MEDIUM: "middle",
         FAN_HIGH: "high",
         FAN_TOP: "strong",
-    }
+    },
 }
 HVAC_SWING_MODE_SETS = {
-    "True/False": {
-        SWING_ON: True,
-        SWING_OFF: False,
+    "Full Swing/Horizontal Swing/Vertical Swing/No Swing": {
+        SWING_BOTH: (True, True),
+        SWING_HORIZONTAL: (True, False),
+        SWING_VERTICAL: (False, True),
+        SWING_OFF: (False, False),
     }
 }
 PRESET_SETS = {
@@ -184,6 +189,11 @@ def flow_schema(dps):
         vol.Optional(CONF_HVAC_MODE_SET): vol.In(list(HVAC_MODE_SETS.keys())),
         vol.Optional(CONF_HVAC_FAN_MODE_DP): vol.In(dps),
         vol.Optional(CONF_HVAC_FAN_MODE_SET): vol.In(list(HVAC_FAN_MODE_SETS.keys())),
+        vol.Optional(CONF_HVAC_SWING_MODE_VERTICAL_DP): vol.In(dps),
+        vol.Optional(CONF_HVAC_SWING_MODE_HORIZONTAL_DP): vol.In(dps),
+        vol.Optional(CONF_HVAC_SWING_MODE_SET): vol.In(
+            list(HVAC_SWING_MODE_SETS.keys())
+        ),
         vol.Optional(CONF_HVAC_ACTION_DP): vol.In(dps),
         vol.Optional(CONF_HVAC_ACTION_SET): vol.In(list(HVAC_ACTION_SETS.keys())),
         vol.Optional(CONF_ECO_DP): vol.In(dps),
@@ -232,7 +242,12 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
         self._conf_hvac_fan_mode_set = HVAC_FAN_MODE_SETS.get(
             self._config.get(CONF_HVAC_FAN_MODE_SET), {}
         )
-        self._conf_hvac_swing_mode_dp = self._config.get(CONF_HVAC_SWING_MODE_DP)
+        self._conf_hvac_swing_mode_horizontal_dp = self._config.get(
+            CONF_HVAC_SWING_MODE_HORIZONTAL_DP
+        )
+        self._conf_hvac_swing_mode_vertical_dp = self._config.get(
+            CONF_HVAC_SWING_MODE_VERTICAL_DP
+        )
         self._conf_hvac_swing_mode_set = HVAC_SWING_MODE_SETS.get(
             self._config.get(CONF_HVAC_SWING_MODE_SET), {}
         )
@@ -252,16 +267,26 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
     @property
     def supported_features(self):
         """Flag supported features."""
-        supported_features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+        supported_features = (
+            ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+        )
         if self.has_config(CONF_TARGET_TEMPERATURE_DP):
-            supported_features = supported_features | ClimateEntityFeature.TARGET_TEMPERATURE
+            supported_features = (
+                supported_features | ClimateEntityFeature.TARGET_TEMPERATURE
+            )
         if self.has_config(CONF_MAX_TEMP_DP):
-            supported_features = supported_features | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+            supported_features = (
+                supported_features | ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+            )
         if self.has_config(CONF_PRESET_DP) or self.has_config(CONF_ECO_DP):
             supported_features = supported_features | ClimateEntityFeature.PRESET_MODE
-        if self.has_config(CONF_HVAC_FAN_MODE_DP) and self.has_config(CONF_HVAC_FAN_MODE_SET):
+        if self.has_config(CONF_HVAC_FAN_MODE_DP) and self.has_config(
+            CONF_HVAC_FAN_MODE_SET
+        ):
             supported_features = supported_features | ClimateEntityFeature.FAN_MODE
-        if self.has_config(CONF_HVAC_SWING_MODE_DP):
+        if self.has_config(CONF_HVAC_SWING_MODE_HORIZONTAL_DP) and self.has_config(
+            CONF_HVAC_SWING_MODE_VERTICAL_DP
+        ):
             supported_features = supported_features | ClimateEntityFeature.SWING_MODE
         return supported_features
 
@@ -368,12 +393,20 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
     @property
     def swing_mode(self):
         """Return the swing setting."""
+        if (
+            not self.has_config(CONF_HVAC_SWING_MODE_HORIZONTAL_DP)
+            and not self.has_config(CONF_HVAC_SWING_MODE_VERTICAL_DP)
+        ):
+            return None
+
         return self._swing_mode
 
     @property
     def swing_modes(self):
         """Return the list of available swing modes."""
-        if not self.has_config(CONF_HVAC_SWING_MODE_DP):
+        if not self.has_config(
+            CONF_HVAC_SWING_MODE_HORIZONTAL_DP
+        ) and not self.has_config(CONF_HVAC_SWING_MODE_VERTICAL_DP):
             return None
         return list(self._conf_hvac_swing_mode_set)
 
@@ -412,14 +445,25 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
 
     async def async_set_swing_mode(self, swing_mode):
         """Set new target swing operation."""
-        if self._conf_hvac_swing_mode_dp is None:
+        if (
+            not self._conf_hvac_swing_mode_horizontal_dp
+            and not self._conf_hvac_swing_mode_vertical_dp
+        ):
             _LOGGER.error("Swing mode unsupported (no DP)")
             return
+
         if swing_mode not in self._conf_hvac_swing_mode_set:
             _LOGGER.error("Unsupported swing_mode: %s" % swing_mode)
             return
+
+        swing_horizontal, swing_vertical = self._conf_hvac_swing_mode_set[swing_mode]
+
         await self._device.set_dp(
-            self._conf_hvac_swing_mode_set[swing_mode], self._conf_hvac_swing_mode_dp
+            swing_horizontal, self._conf_hvac_swing_mode_horizontal_dp
+        )
+
+        await self._device.set_dp(
+            swing_vertical, self._conf_hvac_swing_mode_vertical_dp
         )
 
     async def async_turn_on(self) -> None:
@@ -502,17 +546,33 @@ class LocaltuyaClimate(LocalTuyaEntity, ClimateEntity):
                     break
             else:
                 # in case fan mode and preset share the same dp
-                _LOGGER.debug("Unknown fan mode %s" % self.dps_conf(CONF_HVAC_FAN_MODE_DP))
+                _LOGGER.debug(
+                    "Unknown fan mode %s" % self.dps_conf(CONF_HVAC_FAN_MODE_DP)
+                )
                 self._fan_mode = FAN_AUTO
 
         # Update the swing status
-        if self.has_config(CONF_HVAC_SWING_MODE_DP):
+        if self.has_config(CONF_HVAC_SWING_MODE_HORIZONTAL_DP) and self.has_config(
+            CONF_HVAC_SWING_MODE_VERTICAL_DP
+        ):
             for mode, value in self._conf_hvac_swing_mode_set.items():
-                if self.dps_conf(CONF_HVAC_SWING_MODE_DP) == value:
+                swing_horizontal, swing_vertical = value
+                if (
+                    self.dps_conf(CONF_HVAC_SWING_MODE_HORIZONTAL_DP)
+                    == swing_horizontal
+                    and self.dps_conf(CONF_HVAC_SWING_MODE_VERTICAL_DP)
+                    == swing_vertical
+                ):
                     self._swing_mode = mode
                     break
             else:
-                _LOGGER.debug("Unknown swing mode %s" % self.dps_conf(CONF_HVAC_SWING_MODE_DP))
+                _LOGGER.debug(
+                    "Unknown swing mode %s or %s"
+                    % (
+                        self.dps_conf(CONF_HVAC_SWING_MODE_HORIZONTAL_DP),
+                        self.dps_conf(CONF_HVAC_SWING_MODE_VERTICAL_DP),
+                    )
+                )
                 self._swing_mode = SWING_OFF
 
         # Update the current action

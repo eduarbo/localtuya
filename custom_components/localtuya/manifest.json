@@ -1,6 +1,6 @@
 {
   "domain": "localtuya",
-  "name": "LocalTuya integration",
+  "name": "LocalTuya integration (@eduarbo fork)",
   "codeowners": [
     "@eduarbo"
   ],
